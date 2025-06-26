@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LuckyLoop Lottery</title>
+  <style>
+    :root {
+      --primary: #6a1b9a;
+      --primary-light: #9c4dff;
+      --text: #333;
+      --error: #d32f2f;
+      --success: #388e3c;
+    }
+    
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background-color: #f8f9fa;
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+    }
+    
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 2rem;
+      max-width: 400px;
+      width: 100%;
+    }
+    
+    h1 {
+      color: var(--primary);
+      margin-bottom: 1.5rem;
+    }
+    
+    .button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .button:hover:not(:disabled) {
+      background: var(--primary-light);
+      transform: translateY(-2px);
+    }
+    
+    .button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .status {
+      margin: 1.5rem 0;
+      padding: 1rem;
+      background: #f5f5f5;
+      border-radius: 8px;
+      text-align: left;
+    }
+    
+    .status-item {
+      margin: 0.5rem 0;
+      display: flex;
+      align-items: center;
+    }
+    
+    .indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+    
+    .connected {
+      background: var(--success);
+    }
+    
+    .disconnected {
+      background: var(--error);
+    }
+    
+    .error-message, .success-message {
+      margin: 1rem 0;
+      padding: 0.75rem;
+      border-radius: 6px;
+    }
+    
+    .error-message {
+      color: var(--error);
+      background: rgba(211, 47, 47, 0.1);
+    }
+    
+    .success-message {
+      color: var(--success);
+      background: rgba(56, 142, 60, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LuckyLoop Lottery</h1>
+    
+    <button id="connectBtn" class="button" aria-label="Connect your Ethereum wallet">Connect Wallet</button>
+    <button id="enterBtn" class="button hidden" disabled aria-label="Enter lottery with 0.01 ETH">Enter Lottery (0.01 ETH)</button>
+    <button id="disconnectBtn" class="button hidden" aria-label="Disconnect your wallet">Disconnect</button>
+    
+    <div class="status" aria-live="polite">
+      <div class="status-item">
+        <span id="statusIndicator" class="indicator disconnected"></span>
+        <span id="statusText">Status: Not connected</span>
+      </div>
+      <div class="status-item">
+        <span id="networkIndicator" class="indicator disconnected"></span>
+        <span id="networkText">Network: Unknown</span>
+      </div>
+      <div class="status-item">
+        <span id="balanceIndicator" class="indicator disconnected"></span>
+        <span>Balance: </span><span id="balance">--</span>
+      </div>
+      <div class="status-item">
+        <span id="prizeIndicator" class="indicator disconnected"></span>
+        <span>Prize Pool: </span><span id="prizePool">--</span>
+      </div>
+      <div class="status-item">
+        <span id="playersIndicator" class="indicator disconnected"></span>
+        <span>Players: </span><span id="playersCount">--</span>
+      </div>
+      <div class="status-item">
+        <span>Entry Fee: 0.01 ETH</span>
+      </div>
+    </div>
+    
+    <div id="errorMessage" class="error-message hidden"></div>
+    <div id="successMessage" class="success-message hidden"></div>
+  </div>
+
+  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // DOM Elements
+      const connectBtn = document.getElementById("connectBtn");
+      const enterBtn = document.getElementById("enterBtn");
+      const disconnectBtn = document.getElementById("disconnectBtn");
+      const statusText = document.getElementById("statusText");
+      const statusIndicator = document.getElementById("statusIndicator");
+      const networkText = document.getElementById("networkText");
+      const networkIndicator = document.getElementById("networkIndicator");
+      const balanceText = document.getElementById("balance");
+      const balanceIndicator = document.getElementById("balanceIndicator");
+      const prizePoolText = document.getElementById("prizePool");
+      const prizeIndicator = document.getElementById("prizeIndicator");
+      const playersCountText = document.getElementById("playersCount");
+      const playersIndicator = document.getElementById("playersIndicator");
+      const errorMessage = document.getElementById("errorMessage");
+      const successMessage = document.getElementById("successMessage");
+      
+      // Configuration
+      const CONFIG = {
+        network: {
+          chainId: 8453,
+          name: "Base Mainnet",
+          hexId: "0x2105",
+          rpcUrls: ["https://mainnet.base.org"],
+          blockExplorerUrls: ["https://basescan.org"],
+          nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18
+          }
+        },
+        contract: {
+          address: "0x7102a550B0EcbBCbD289630Cd560189B44674192",
+          abi: [
+            {
+              "inputs": [],
+              "name": "enterLottery",
+              "outputs": [],
+              "stateMutability": "payable",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "getPlayers",
+              "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "getBalance",
+              "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+              "stateMutability": "view",
+              "type": "function"
+            }
+          ],
+          entryFee: "0.01"
+        }
+      };
+      
+      // App State
+      let provider;
+      let signer;
+      let contract;
+      let account;
+      let updateInterval;
+      
+      // Initialize
+      const init = async () => {
+        if (window.ethereum) {
+          // Check if already connected
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+          if (accounts.length > 0) {
+            await connectWallet();
+          }
+          // Listen for account changes
+          window.ethereum.on('accountsChanged', () => {
+            disconnectWallet();
+            showError("Account changed. Please reconnect.");
+          });
+        } else {
+          showError("MetaMask or another Web3 wallet is required. Install at https://metamask.io");
+        }
+      };
+      
+      // Connect wallet
+      const connectWallet = async () => {
+        if (!window.ethereum) {
+          showError("Web3 wallet not detected. Install at https://metamask.io");
+          return;
+        }
+        
+        try {
+          connectBtn.disabled = true;
+          connectBtn.textContent = "Connecting...";
+          
+          provider = new ethers.providers.Web3Provider(window.ethereum);
+          await provider.send("eth_requestAccounts", []);
+          
+          const network = await provider.getNetwork();
+          if (network.chainId !== CONFIG.network.chainId) {
+            try {
+              await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: CONFIG.network.hexId }]
+              });
+            } catch (switchError) {
+              if (switchError.code === 4902) {
+                await window.ethereum.request({
+                  method: 'wallet_addEthereumChain',
+                  params: [{
+                    chainId: CONFIG.network.hexId,
+                    chainName: CONFIG.network.name,
+                    rpcUrls: CONFIG.network.rpcUrls,
+                    nativeCurrency: CONFIG.network.nativeCurrency,
+                    blockExplorerUrls: CONFIG.network.blockExplorerUrls
+                  }]
+                });
+              } else {
+                showError(`Please switch to ${CONFIG.network.name}`);
+                return;
+              }
+            }
+          }
+          
+          signer = provider.getSigner();
+          account = await signer.getAddress();
+          contract = new ethers.Contract(
+            CONFIG.contract.address,
+            CONFIG.contract.abi,
+            signer
+          );
+          
+          // Update UI
+          updateConnectedUI();
+          
+          // Load initial data and start polling
+          await updateData();
+          updateInterval = setInterval(updateData, 30000); // Update every 30 seconds
+          
+        } catch (err) {
+          console.error("Connection error:", err);
+          showError(parseError(err));
+        } finally {
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect Wallet";
+        }
+      };
+      
+      // Enter lottery
+      const enterLottery = async () => {
+        if (!signer) {
+          showError("Wallet not connected");
+          return;
+        }
+        
+        if (!confirm(`Enter lottery for ${CONFIG.contract.entryFee} ETH?`)) {
+          return;
+        }
+        
+        try {
+          enterBtn.disabled = true;
+          enterBtn.textContent = "Processing...";
+          showError(""); // Clear any errors
+          showSuccess("Transaction pending...");
+          
+          const tx = await contract.enterLottery({
+            value: ethers.utils.parseEther(CONFIG.contract.entryFee)
+          });
+          
+          await tx.wait();
+          clearError();
+          await updateData();
+          showSuccess(`Successfully entered the lottery! Transaction: ${tx.hash}`);
+        } catch (err) {
+          console.error("Lottery entry error:", err);
+          showError(parseError(err));
+        } finally {
+          enterBtn.disabled = false;
+          enterBtn.textContent = "Enter Lottery (0.01 ETH)";
+          enterBtn.setAttribute("aria-label", "Enter lottery with 0.01 ETH");
+        }
+      };
+      
+      // Disconnect wallet
+      const disconnectWallet = () => {
+        if (updateInterval) clearInterval(updateInterval);
+        provider = null;
+        signer = null;
+        contract = null;
+        account = null;
+        
+        // Update UI
+        statusText.textContent = "Status: Not connected";
+        statusIndicator.className = "indicator disconnected";
+        networkText.textContent = "Network: Unknown";
+        networkIndicator.className = "indicator disconnected";
+        balanceText.textContent = "--";
+        balanceIndicator.className = "indicator disconnected";
+        prizePoolText.textContent = "--";
+        prizeIndicator.className = "indicator disconnected";
+        playersCountText.textContent = "--";
+        playersIndicator.className = "indicator disconnected";
+        
+        connectBtn.classList.remove("hidden");
+        enterBtn.classList.add("hidden");
+        disconnectBtn.classList.add("hidden");
+      };
+      
+      // Update data
+      const updateData = async () => {
+        if (!signer) return;
+        
+        try {
+          // Indicate loading
+          balanceText.textContent = "Loading...";
+          prizePoolText.textContent = "Loading...";
+          playersCountText.textContent = "Loading...";
+          
+          // Get balance
+          const balance = await provider.getBalance(account);
+          const formattedBalance = ethers.utils.formatEther(balance);
+          balanceText.textContent = `${parseFloat(formattedBalance).toFixed(4)} ETH`;
+          balanceIndicator.className = "indicator connected";
+          
+          // Enable/disable enter button
+          enterBtn.disabled = parseFloat(formattedBalance) < parseFloat(CONFIG.contract.entryFee);
+          
+          // Get prize pool
+          const prizePool = await contract.getBalance();
+          prizePoolText.textContent = `${ethers.utils.formatEther(prizePool)} ETH`;
+          prizeIndicator.className = "indicator connected";
+          
+          // Get player count
+          const players = await contract.getPlayers();
+          playersCountText.textContent = players.length;
+          playersIndicator.className = "indicator connected";
+          
+        } catch (err) {
+          console.error("Data update error:", err);
+          balanceText.textContent = "--";
+          balanceIndicator.className = "indicator disconnected";
+          prizePoolText.textContent = "--";
+          prizeIndicator.className = "indicator disconnected";
+          playersCountText.textContent = "--";
+          playersIndicator.className = "indicator disconnected";
+        }
+      };
+      
+      // Update UI when connected
+      const updateConnectedUI = () => {
+        statusText.textContent = `Status: Connected (${account.slice(0, 6)}...)`;
+        statusIndicator.className = "indicator connected";
+        networkText.textContent = `Network: ${CONFIG.network.name}`;
+        networkIndicator.className = "indicator connected";
+        
+        connectBtn.classList.add("hidden");
+        enterBtn.classList.remove("hidden");
+        disconnectBtn.classList.remove("hidden");
+      };
+      
+      // Helper functions
+      const parseError = (error) => {
+        if (error.code === 4001) return "Request rejected by user";
+        if (error.code === -32603) return "Insufficient funds for transaction";
+        return error.message || "An unknown error occurred";
+      };
+      
+      const showError = (message) => {
+        errorMessage.textContent = message;
+        errorMessage.classList.toggle("hidden", !message);
+        successMessage.classList.add("hidden");
+      };
+      
+      const showSuccess = (message) => {
+        successMessage.textContent = message;
+        successMessage.classList.toggle("hidden", !message);
+        errorMessage.classList.add("hidden");
+      };
+      
+      const clearError = () => {
+        errorMessage.classList.add("hidden");
+      };
+      
+      // Event listeners
+      connectBtn.addEventListener("click", connectWallet);
+      enterBtn.addEventListener("click", enterLottery);
+      disconnectBtn.addEventListener("click", disconnectWallet);
+      
+      // Initialize
+      init();
+    });
+  </script>
+</body>
+</html>
