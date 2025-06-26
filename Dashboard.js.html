@@ -1,0 +1,131 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import io from 'socket.io-client';
+import axios from 'axios';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
+const socket = io('https://your-backend-url.onrender.com', {
+  auth: { token: localStorage.getItem('token') }
+});
+
+const Dashboard = () => {
+  const [activities, setActivities] = useState([]);
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const navigate = useNavigate();
+
+  // Handle Login
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await axios.post('https://your-backend-url.onrender.com/api/login', { username, password });
+      localStorage.setItem('token', response.data.token);
+      setToken(response.data.token);
+    } catch (err) {
+      alert('Login failed');
+    }
+  };
+
+  // Fetch Activities
+  useEffect(() => {
+    if (!token) return;
+    const fetchActivities = async () => {
+      try {
+        const response = await axios.get('https://your-backend-url.onrender.com/api/activities', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setActivities(response.data);
+      } catch (err) {
+        console.error(err);
+        localStorage.removeItem('token');
+        setToken('');
+      }
+    };
+    fetchActivities();
+
+    // WebSocket for Real-Time Updates
+    socket.on('newActivity', (activity) => {
+      setActivities((prev) => [activity, ...prev.slice(0, 49)]);
+    });
+
+    return () => socket.off('newActivity');
+  }, [token]);
+
+  // Logout
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken('');
+    navigate('/');
+  };
+
+  // Chart Data
+  const chartData = {
+    labels: activities.map(a => new Date(a.timestamp).toLocaleTimeString()),
+    datasets: [{
+      label: 'Ticket Purchases ($)',
+      data: activities.map(a => a.details.amount || 0),
+      borderColor: 'rgba(75, 192, 192, 1)',
+      fill: false
+    }]
+  };
+
+  if (!token) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <form onSubmit={handleLogin} className="p-6 bg-white rounded shadow-md">
+          <h2 className="text-2xl mb-4">Admin Login</h2>
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="mb-2 p-2 border w-full"
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mb-2 p-2 border w-full"
+          />
+          <button type="submit" className="p-2 bg-blue-500 text-white w-full">Login</button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl">Lottery Dashboard</h1>
+        <button onClick={handleLogout} className="p-2 bg-red-500 text-white">Logout</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="p-4 bg-white rounded shadow">
+          <h2 className="text-xl">Metrics</h2>
+          <p>Total Tickets: {activities.length}</p>
+          <p>Jackpot: $10M</p>
+        </div>
+        <div className="p-4 bg-white rounded shadow">
+          <h2 className="text-xl">Ticket Sales Over Time</h2>
+          <Line data={chartData} />
+        </div>
+      </div>
+      <div className="p-4 bg-white rounded shadow">
+        <h2 className="text-xl">Live Activity Feed</h2>
+        <ul>
+          {activities.map((activity, index) => (
+            <li key={index} className="py-2">
+              [{new Date(activity.timestamp).toLocaleTimeString()}] {activity.type}: {JSON.stringify(activity.details)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
